@@ -15,6 +15,7 @@
       overflow: hidden;
       height: 100%;
     }
+
     #map {
       position: absolute;
       top: 0;
@@ -22,6 +23,7 @@
       width: 100vw;
       height: 100vh;
     }
+
     #clock {
       position: absolute;
       top: 10px;
@@ -32,6 +34,7 @@
       font-size: 14px;
       font-family: Arial, sans-serif;
     }
+
     #attribution {
       position: absolute;
       bottom: 10px;
@@ -94,13 +97,13 @@
             "tiles": [this.url],
             "tileSize": 256,
             "maxzoom": 10,
-            "minzoom": 4
+            "minzoom": 3.5
           });
           map.addLayer({
             "id": "jma_hrpns",
             "type": "raster",
             "source": key,
-            "minzoom": 4,
+            "minzoom": 3.5,
             "maxzoom": 18,
             "paint": {
               "raster-opacity": 0.8,
@@ -181,36 +184,31 @@
             "raster-saturation": -1
           }
         }
-      ],
-      "metadata": {
-        "attribution": {
-          "text": "地理院地図 © <a href='https://maps.gsi.go.jp/' target='_blank' rel='noopener noreferrer'>GSI</a> | 気象庁ナウキャスト © <a href='https://www.jma.go.jp/bosai/nowc/' target='_blank' rel='noopener noreferrer'>JMA</a>",
-          "url": "https://www.jma.go.jp/bosai/nowc/"
-        }
-      }
+      ]
     };
-
-    const bounds = [
-      [120.0, 20.0],
-      [156.0, 50.0]
-    ];
 
     const map = new maplibregl.Map({
       container: "map",
-      center: [137.0, 38.0],
-      zoom: 4,
+      center: [134.5, 34.5],
+      zoom: 3.5,
       style: style,
       pitch: 0,
-      bearing: 0
+      bearing: 0,
+      dragRotate: false,
+      touchZoomRotate: { rotate: false }
     });
 
-    map.on('pitchstart', () => map.setPitch(0));
-    map.on('rotate', () => map.setBearing(0));
-
     map.on('load', () => {
-      map.setMaxBounds(bounds);
+      map.setMinZoom(3.5);
       map.setMaxZoom(12);
-      map.setMinZoom(4);
+
+      map.on('rotate', () => {
+        map.setBearing(0);
+      });
+      map.on('pitch', () => {
+        map.setPitch(0);
+      });
+
       const control = new MyControl();
       map.addControl(control);
     });
