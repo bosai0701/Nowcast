@@ -1,144 +1,127 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="ja">
 <head>
   <meta charset="UTF-8">
   <title>降水ナウキャスト</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <link rel="icon" href="favicon.ico">
-  <link rel="apple-touch-icon" href="favicon.ico">
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@1.14.0/dist/maplibre-gl.css" />
-  <script src="https://unpkg.com/maplibre-gl@1.14.0/dist/maplibre-gl.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
-    body, html {
-      margin: 0;
-      overflow: hidden;
-      height: 100%;
-    }
-
-    #map {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-    }
-
+    html, body { height: 100%; margin: 0; }
+    #map { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    .leaflet-tile { image-rendering: pixelated; }
+    .leaflet-tile.carto-tile { filter: brightness(0.57) contrast(3.5) saturate(0); }
+    .leaflet-tile.gsi-tile { filter: grayscale(100%) !important; }
     #clock {
       position: absolute;
       top: 10px;
       left: 10px;
-      background: rgba(255, 255, 255, 0.8);
+      background: rgba(255, 255, 255, 0.70);
       padding: 10px;
-      border-radius: 3px;
+      border-radius: 5px;
       font-size: 14px;
       font-family: Arial, sans-serif;
-    }
-
-    #attribution {
-      position: absolute;
-      bottom: 10px;
-      right: 10px;
-      background: rgba(255, 255, 255, 0.8);
-      padding: 5px;
-      border-radius: 3px;
-      font-size: 12px;
-      font-family: Arial, sans-serif;
-      max-width: 200px;
-      text-align: center;
+      z-index: 1000;
     }
   </style>
 </head>
-
 <body>
   <div id="map"></div>
   <div id="clock"></div>
-  <div id="attribution">
-    <div><a href="https://maps.gsi.go.jp/" target="_blank" rel="noopener noreferrer">地理院地図</a></div>
-    <div><a href="https://www.jma.go.jp/bosai/nowc/" target="_blank" rel="noopener noreferrer">気象庁ナウキャスト</a></div>
-  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    class MyControl {
-      constructor() {
-        this.url = null;
-        this.updateInterval = 1000;
-      }
+    const TILE_SIZE = 256;
+    const ZOOM_SCALE = {3:1.5,5:1.25,7:1.2,9:1.125,11:1.1,12:1.2,13:1.3,14:1.4,15:1.5,16:1.6};
+    let latestTime1 = '', latestTime2 = '';
 
-      onAdd(map) {
-        this._map = map;
-        this.setUpdateInterval();
-        return null;
-      }
-
-      async update() {
-        const newUrl = await this.fetchNowcastUrl();
-        if (this.url !== newUrl) {
-          this.url = newUrl;
-          this.updateLayer();
+    async function fetchLatestTimes() {
+      try {
+        const res = await fetch('https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json');
+        const data = await res.json();
+        if(data && data.length > 0){
+          const newTime1 = data[0].basetime;
+          const newTime2 = data[0].validtime;
+          const changed = newTime1 !== latestTime1 || newTime2 !== latestTime2;
+          latestTime1 = newTime1;
+          latestTime2 = newTime2;
+          return changed;
         }
-      }
-
-      async fetchNowcastUrl() {
-        const res = await fetch("https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json");
-        const json = await res.json();
-        const basetime = json[0].basetime;
-        const time = json[0].targetTime || basetime;
-        return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${basetime}/none/${time}/surf/hrpns/{z}/{x}/{y}.png`;
-      }
-
-      updateLayer() {
-        const key = "jma_hrpns";
-        const map = this._map;
-        let source = map.getSource(key);
-
-        if (!source) {
-          map.addSource(key, {
-            "type": "raster",
-            "tiles": [this.url],
-            "tileSize": 256,
-            "maxzoom": 10,
-            "minzoom": 3.5
-          });
-          map.addLayer({
-            "id": "jma_hrpns",
-            "type": "raster",
-            "source": key,
-            "minzoom": 3.5,
-            "maxzoom": 18,
-            "paint": {
-              "raster-opacity": 0.8,
-              "raster-resampling": "nearest",
-              "raster-fade-duration": 0
-            }
-          });
-        } else {
-          source.tiles = [this.url];
-          map.style.sourceCaches[key]._tiles = {};
-          map.style.sourceCaches[key].update(map.transform);
-          map.triggerRepaint();
-        }
-      }
-
-      setUpdateInterval() {
-        const updateNow = () => {
-          this.update();
-          setInterval(() => this.update(), this.updateInterval);
-        };
-
-        const now = new Date();
-        const seconds = now.getSeconds();
-        const millisecondsUntilNextSecond = (1000 - now.getMilliseconds());
-        setTimeout(updateNow, millisecondsUntilNextSecond);
-      }
-
-      onRemove() {
-        this._map = undefined;
-      }
-
-      getDefaultPosition() {
-        return 'top-left';
-      }
+      } catch(e){}
+      return false;
     }
+
+    const jmaUrlTemplate = (z,x,y) => {
+      if(!latestTime1 || !latestTime2) return ``;
+      return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${latestTime1}/none/${latestTime2}/surf/hrpns/${z}/${x}/${y}.png`;
+    };
+
+    const NowcastLayer = L.GridLayer.extend({
+      createTile: function(coords) {
+        const z = coords.z;
+        const tile = document.createElement('div');
+        tile.style.width = TILE_SIZE + 'px';
+        tile.style.height = TILE_SIZE + 'px';
+
+        if(z % 2 === 0 && z <= 10){
+          const url = jmaUrlTemplate(z, coords.x, coords.y);
+          tile.style.backgroundImage = `url("${url}")`;
+          tile.style.backgroundSize = "100% 100%";
+        } else {
+          let zParent, xParent, yParent;
+          if(z <= 10){
+            zParent = z - 1; xParent = Math.floor(coords.x/2); yParent = Math.floor(coords.y/2);
+          } else {
+            zParent = 10;
+            const scaleFactor = Math.pow(2, z-10);
+            xParent = Math.floor(coords.x/scaleFactor);
+            yParent = Math.floor(coords.y/scaleFactor);
+          }
+          const url = jmaUrlTemplate(zParent, xParent, yParent);
+          const factor = z > 10 ? Math.pow(2, z-10) : 2;
+          tile.style.backgroundImage = `url("${url}")`;
+          tile.style.backgroundSize = (TILE_SIZE * factor) + "px " + (TILE_SIZE * factor) + "px";
+          tile.style.backgroundPosition = (-(coords.x % factor) * TILE_SIZE) + "px " + (-(coords.y % factor) * TILE_SIZE) + "px";
+          const scale = ZOOM_SCALE[z] || 1.0;
+          tile.style.transformOrigin = "top left";
+          tile.style.transform = `scale(${scale})`;
+        }
+
+        return tile;
+      }
+    });
+
+    const map = L.map('map', {
+      center: [34.5, 134.5],
+      zoom: 4,
+      minZoom: 4,
+      maxZoom: 16,
+      zoomControl: false,
+      attributionControl: false
+    });
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{@2x}.png', {
+      maxZoom: 16,
+      attribution: '',
+    }).on('tileload', e => e.tile.classList.add('carto-tile')).addTo(map);
+
+    L.tileLayer('https://www.jma.go.jp/bosai/jmatile/data/map/none/none/none/surf/mask/{z}/{x}/{y}.png', {
+      maxZoom: 16,
+      opacity: 1.0,
+      attribution: '',
+    }).on('tileload', e => e.tile.classList.add('gsi-tile')).addTo(map);
+
+    const nowcastLayer = new NowcastLayer({opacity:0.77}).addTo(map);
+
+    (async () => {
+      await fetchLatestTimes();
+      nowcastLayer.redraw();
+    })();
+
+    setInterval(async () => {
+      const changed = await fetchLatestTimes();
+      if(changed) nowcastLayer.redraw();
+    }, 100);
 
     function updateClock() {
       const now = new Date();
@@ -152,77 +135,8 @@
       const timeStr = `${hours}:${minutes}:${seconds}`;
       document.getElementById('clock').textContent = `${dateStr} ${timeStr}`;
     }
-
-    setInterval(updateClock, 1000);
-
-    const style = {
-      "version": 8,
-      "sources": {
-        "gsi_base": {
-          "type": "raster",
-          "tiles": [
-            "https://www.jma.go.jp/tile/gsi/pale/{z}/{x}/{y}.png"
-          ],
-          "tileSize": 256
-        }
-      },
-      "layers": [
-        {
-          "id": "background",
-          "type": "background",
-          "paint": {
-            "background-color": "#ffffff"
-          }
-        },
-        {
-          "id": "gsi_base",
-          "type": "raster",
-          "source": "gsi_base",
-          "minzoom": 0,
-          "maxzoom": 18,
-          "paint": {
-            "raster-saturation": -1
-          }
-        }
-      ]
-    };
-
-    const map = new maplibregl.Map({
-      container: "map",
-      center: [134.5, 34.5],
-      zoom: 3.5,
-      style: style,
-      pitch: 0,
-      bearing: 0,
-      dragRotate: false,
-      touchZoomRotate: { rotate: false }
-    });
-
-    map.on('load', () => {
-      map.setMinZoom(3.5);
-      map.setMaxZoom(12);
-
-      map.on('rotate', () => {
-        map.setBearing(0);
-      });
-      map.on('pitch', () => {
-        map.setPitch(0);
-      });
-
-      const control = new MyControl();
-      map.addControl(control);
-    });
-
-    function onResize() {
-      const mapContainer = document.getElementById('map');
-      mapContainer.style.width = '100vw';
-      mapContainer.style.height = '100vh';
-      map.resize();
-    }
-
-    window.addEventListener('resize', onResize);
-    onResize();
+    setInterval(updateClock, 100);
+    updateClock();
   </script>
 </body>
-
 </html>
